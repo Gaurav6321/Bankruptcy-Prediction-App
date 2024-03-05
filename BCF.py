@@ -1,9 +1,8 @@
 import streamlit as st
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
-from sklearn.feature_selection import SelectKBest, chi2
 
 # Set the color scheme
 COLOR_SCHEME = {
@@ -54,7 +53,7 @@ def feature_engineering(data):
     return data
 
 def load_data():
-    data = pd.read_csv(r"C:\Users\Gaurav\Downloads\Bankruptcy Prediction.csv")
+    data = pd.read_csv(r"/workspaces/Bankruptcy_Prediction_App/.devcontainer/Bankruptcy Prediction.csv")
 
     # Remove outliers from numerical columns
     numerical_columns = data.select_dtypes(include='float').columns
@@ -67,9 +66,42 @@ def load_data():
     return data
 
 def train_model(X_train, y_train, X_test, y_test):
-    model_rf = RandomForestClassifier()
-    model_rf.fit(X_train, y_train)
-    return model_rf
+    # Define a smaller parameter grid for faster tuning
+    param_grid = {
+        'n_estimators': [50, 100],
+        'max_depth': [None, 10],
+        'min_samples_split': [2, 5],
+        'min_samples_leaf': [1, 2]
+    }
+
+    # Create a RandomForestClassifier instance
+    rf_model = RandomForestClassifier(random_state=42)
+
+    # Use GridSearchCV for hyperparameter tuning
+    grid_search = GridSearchCV(estimator=rf_model, param_grid=param_grid, scoring='accuracy', cv=5)
+    grid_search.fit(X_train, y_train)
+
+    # Get the best parameters and train the final model
+    best_params = grid_search.best_params_
+    final_model = RandomForestClassifier(random_state=42, **best_params)
+    final_model.fit(X_train, y_train)
+
+    # Display the best parameters found by GridSearchCV
+    st.subheader("Best Hyperparameters:")
+    st.write(best_params)
+
+    # Display model evaluation metrics
+    st.subheader("Model Evaluation Metrics:")
+    st.write(f"Training Accuracy: {accuracy_score(y_train, final_model.predict(X_train)):.2%}")
+    st.write(f"Testing Accuracy: {accuracy_score(y_test, final_model.predict(X_test)):.2%}")
+    # Replace the confusion matrix line with the following:
+    st.write("Confusion Matrix:")
+    st.write(confusion_matrix(y_test, final_model.predict(X_test), labels=y_test.unique()))
+
+    st.write("Classification Report:")
+    st.write(classification_report(y_test, final_model.predict(X_test)))
+
+    return final_model
 
 def main():
     # Set the title of your Streamlit app
@@ -92,36 +124,17 @@ def main():
     X = df.drop(target_column, axis=1)
     y = df[target_column]
 
-    # Use SelectKBest to extract top 30 best features
-    best_features_selector = SelectKBest(score_func=chi2, k=6)
-    fit = best_features_selector.fit(X, y)
-
-    # Get the top 30 features
-    selected_features = X.columns[fit.get_support()]
-
-    # Select only the top 30 features
-    X_selected = X[selected_features]
-
     # Split the data into training and testing sets
-    X_train, X_test, y_train, y_test = train_test_split(X_selected, y, test_size=0.2, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
     # Train the model
     model = train_model(X_train, y_train, X_test, y_test)
 
-    # Display model evaluation metrics
-    st.subheader("Model Evaluation Metrics:")
-    st.write(f"Training Accuracy: {accuracy_score(y_train, model.predict(X_train)):.2%}")
-    st.write(f"Testing Accuracy: {accuracy_score(y_test, model.predict(X_test)):.2%}")
-    st.write("Confusion Matrix:")
-    st.write(confusion_matrix(y_test, model.predict(X_test)))
-    st.write("Classification Report:")
-    st.write(classification_report(y_test, model.predict(X_test)))
-
-    # Add user input for prediction
+    # Display user input for prediction
     st.sidebar.header('User Input:')
 
     features = {}
-    for feature in selected_features:
+    for feature in X.columns:
         features[feature] = st.number_input(feature, min_value=df[feature].min(), max_value=df[feature].max())
 
     submitted = st.sidebar.button("Predict")
@@ -133,12 +146,12 @@ def main():
 
         # Predict bankruptcy on user input
         prediction = model.predict(user_input)
-        probability = model.predict_proba(user_input)[:, 1]
+        probability = model.predict_proba(user_input)[:, 0]
 
         # Display prediction result
         st.subheader('Prediction Result:')
         st.write(f"The model predicts that the company is {'Bankrupt' if prediction[0] == 1 else 'Not Bankrupt'}")
         st.write(f"Probability of Bankruptcy: {probability[0]:.2%}")
 
-if __name__ == '__main__':
+if _name_ == '_main_':
     main()
